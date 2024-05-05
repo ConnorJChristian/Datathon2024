@@ -1,0 +1,426 @@
+---
+title: "Datathon-RHA R Code"
+author: "RHA"
+date: "2024-05-05"
+output: html_document
+---
+
+Librerias
+```{r}
+library(RedditExtractoR)
+library(ggplot2)
+library(RJSONIO)
+library(rlang)
+library(tidyverse)
+library(tidytext)
+library(stopwords)
+library(dplyr)
+library(textcat)
+library(tidyverse)
+library(tidytext)
+library(sentimentr)
+library(topicmodels)
+library(tm)
+library(purrr)
+library(wordcloud)
+library(stringi)
+```
+
+
+Web Scraping de r/mexico y r/mexicofinanciero
+```{r}
+#hey banco
+#keywords es el termino de busqueada, entonces no necesitamos considerar mayusculas/minisculas ya que el motor de busqueada de reddit lo hara por nosotros. cuando usamos varios terminos lo buscamos como "termino1 OR termino2 OR termino3 OR..."
+#consultamos /r/mexico y /r/mexicofinanciero
+hey_r_mex=find_thread_urls(
+  keywords="hey banco",
+  sort_by = "top",
+  subreddit = "mexico",
+  period = "year"
+)
+
+hey_r_mexfin=find_thread_urls(
+  keywords="hey banco",
+  sort_by = "top",
+  subreddit = "mexicofinanciero",
+  period = "year"
+)
+#extraemos dos dataframes, uno de cada subreddit, y los combinamos con rbind
+hey_r =rbind(hey_r_mex, hey_r_mexfin)
+hey_r <- hey_r[c("text", "date_utc", "timestamp")]
+hey_r <- hey_r %>% filter(text != "")
+#para fines de consistencia, nombraremos la columna texto "tweet". "tweet" se refiere a cualquier comentario en las redes observadas
+hey_r <- hey_r %>% rename(tweet = text,date = date_utc, time=timestamp)
+hey_r$language <- sapply(hey_r$tweet, textcat)
+#filtrar por idioma
+hey_r <- hey_r[hey_r$language =='spanish',]
+# Conversion de unix a H M S
+hey_r$time <- as.POSIXct(hey_r$time, origin = "1970-01-01", tz = "UTC")
+hey_r$time <- format(hey_r$time, "%H:%M:%S")
+write_csv(hey_r, "hey_reddit.csv")
+write.table(hey_r, file= "hey_reddit.txt", sep = "", row.names= FALSE, col.names =TRUE)
+
+
+#BBVA
+bbva_r_mex=find_thread_urls(
+  keywords="bbva",
+  sort_by = "top",
+  subreddit = "mexico",
+  period = "year"
+)
+
+bbva_r_mexfin=find_thread_urls(
+  keywords="bbva",
+  sort_by = "top",
+  subreddit = "mexicofinanciero",
+  period = "year"
+)
+bbva_r =rbind(bbva_r_mex, bbva_r_mexfin)
+bbva_r <- bbva_r[c("text", "date_utc", "timestamp")]
+bbva_r <- bbva_r %>% filter(text != "")
+bbva_r <- bbva_r %>% rename(tweet = text,date = date_utc, time=timestamp)
+bbva_r$language <- sapply(bbva_r$tweet, textcat)
+bbva_r <- bbva_r[bbva_r$language =='spanish',]
+bbva_r$time <- as.POSIXct(bbva_r$time, origin = "1970-01-01", tz = "UTC")
+bbva_r$time <- format(bbva_r$time, "%H:%M:%S")
+write_csv(bbva_r, "bbva_reddit.csv")
+write.table(bbva_r, file= "bbva_reddit.txt", sep = "", row.names= FALSE, col.names =TRUE)
+#citi
+citi_r_mex=find_thread_urls(
+  keywords="citi OR citibanamex Or banamex",
+  sort_by = "top",
+  subreddit = "mexico",
+  period = "year"
+)
+
+citi_r_mexfin=find_thread_urls(
+  keywords="citi OR citibanamex OR banamex",
+  sort_by = "top",
+  subreddit = "mexicofinanciero",
+  period = "year"
+)
+citi_r =rbind(citi_r_mex, citi_r_mexfin)
+citi_r <- citi_r[c("text", "date_utc", "timestamp")]
+citi_r <- citi_r %>% filter(text != "")
+citi_r <- citi_r %>% rename(tweet = text,date = date_utc, time=timestamp)
+citi_r$language <- sapply(citi_r$tweet, textcat)
+citi_r <- citi_r[citi_r$language =='spanish',]
+citi_r$time <- as.POSIXct(citi_r$time, origin = "1970-01-01", tz = "UTC")
+citi_r$time <- format(citi_r$time, "%H:%M:%S")
+write_csv(citi_r, "citi_reddit.csv")
+write.table(citi_r, file= "citi_reddit.txt", sep = "", row.names= FALSE, col.names =TRUE)
+
+#santander
+
+santander_r_mex=find_thread_urls(
+  keywords="santander",
+  sort_by = "top",
+  subreddit = "mexico",
+  period = "year"
+)
+
+santander_r_mexfin=find_thread_urls(
+  keywords="santander",
+  sort_by = "top",
+  subreddit = "mexicofinanciero",
+  period = "year"
+)
+santander_r =rbind(santander_r_mex, santander_r_mexfin)
+santander_r <- santander_r[c("text", "date_utc", "timestamp")]
+santander_r <- santander_r %>% filter(text != "")
+santander_r <- santander_r %>% rename(tweet = text,date = date_utc, time=timestamp)
+santander_r$language <- sapply(santander_r$tweet, textcat)
+santander_r <- santander_r[santander_r$language =='spanish',]
+santander_r$time <- as.POSIXct(santander_r$time, origin = "1970-01-01", tz = "UTC")
+santander_r$time <- format(santander_r$time, "%H:%M:%S")
+write_csv(santander_r, "santander_reddit.csv")
+write.table(santander_r, file= "santander_reddit.txt", sep = "", row.names= FALSE, col.names =TRUE)
+```
+Analisis de sentimientos de Reddit
+
+```{r}
+#Carga de webscrape por tema/banco
+bbva_reddit <- read_csv("bbva_reddit.csv")
+
+transcription_bbva <- bbva_reddit %>% select(-date, -time, -language)
+
+
+# Preprocesar el texto
+transcription_bbva <- gsub("\n", " ", transcription_bbva)
+transcription_bbva <- tolower(transcription_bbva)
+transcription_bbva <- removePunctuation(transcription_bbva)
+transcription_bbva <- removeWords(transcription_bbva, stopwords("spanish"))
+
+#Palabras que se eliman del analisis
+eliminar <- c("gracias", "ufd", "hola", "muchas","listo" ,"día", "días", "ustedes", "heybanco", "hey"
+, "buen", "buena", "bien", "pae","", "saludos", "jajaja", "así","hacer","hace","tdc","uso","meses", "verdad", "tan", "solo", "ahí", "despues", "ahora","hoy","puedes", "...", "uff","pude", "puedo", "además", "correo", "bueno","u0001F600-","u0001F64F","u0001F300","u0001F5FF","u0001F680","u0001F6FF","u0001F700","u0001F77F","u0001F780","u0001F7FF","u0001F800","u0001F8FF","u0001F900","u0001F9FF","u0001FA00","u0001FA6F","u0001FA70","u0001FAFF","u00002600","u000026FF","u00002700","u000027BF","ufd","boleto")
+transcription_bbva <- removeWords(transcription_bbva, eliminar)
+transcription_bbva <- paste(transcription_bbva, collapse = " ")
+
+sentiment_bbva <- sentiment_by(transcription_bbva)
+
+#se repite el proceso para los bancos santander, hey, y citibanamex
+santander_reddit <- read_csv("santander_reddit.csv")
+
+transcription_santander <- santander_reddit %>% select(-date, -time, -language)
+
+transcription_santander <- gsub("\n", " ", transcription_santander)
+transcription_santander <- tolower(transcription_santander)
+transcription_santander <- removePunctuation(transcription_santander)
+transcription_santander <- removeWords(transcription_santander, stopwords("spanish"))
+
+#Palabras que se eliman del analisis
+eliminar <- c("gracias", "ufd", "hola", "muchas","listo" ,"día", "días", "ustedes", "heybanco", "hey"
+, "buen", "buena", "bien", "pae","", "saludos", "jajaja", "así","hacer","hace","tdc","uso","meses", "verdad", "tan", "solo", "ahí", "despues", "ahora","hoy","puedes", "...", "uff","pude", "puedo", "además", "correo", "bueno","u0001F600-","u0001F64F","u0001F300","u0001F5FF","u0001F680","u0001F6FF","u0001F700","u0001F77F","u0001F780","u0001F7FF","u0001F800","u0001F8FF","u0001F900","u0001F9FF","u0001FA00","u0001FA6F","u0001FA70","u0001FAFF","u00002600","u000026FF","u00002700","u000027BF","ufd","boleto")
+transcription_santander <- removeWords(transcription_santander, eliminar)
+transcription_santander <- paste(transcription_santander, collapse = " ")
+
+sentiment_santander <- sentiment_by(transcription_santander)
+
+citi_reddit_1_ <- read_csv("citi_reddit.csv")
+
+transcription_banamex <- citi_reddit_1_ %>% select(-date, -time, -language)
+# Preprocesar el texto
+transcription_banamex <- gsub("\n", " ", transcription_banamex)
+transcription_banamex <- tolower(transcription_banamex)
+transcription_banamex <- removePunctuation(transcription_banamex)
+transcription_banamex <- removeWords(transcription_banamex, stopwords("spanish"))
+
+#Palabras que se eliman del analisis
+eliminar <- c("gracias", "ufd", "hola", "muchas","listo" ,"día", "días", "ustedes", "heybanco", "hey"
+, "buen", "buena", "bien", "pae","", "saludos", "jajaja", "así","hacer","hace","tdc","uso","meses", "verdad", "tan", "solo", "ahí", "despues", "ahora","hoy","puedes", "...", "uff","pude", "puedo", "además", "correo", "bueno","u0001F600-","u0001F64F","u0001F300","u0001F5FF","u0001F680","u0001F6FF","u0001F700","u0001F77F","u0001F780","u0001F7FF","u0001F800","u0001F8FF","u0001F900","u0001F9FF","u0001FA00","u0001FA6F","u0001FA70","u0001FAFF","u00002600","u000026FF","u00002700","u000027BF","ufd","boleto")
+transcription_banamex <- removeWords(transcription_banamex, eliminar)
+transcription_banamex <- paste(transcription_banamex, collapse = " ")
+
+sentiment_banamex <- sentiment_by(transcription_banamex)
+```
+
+
+
+Analisis de sentimientos de base de datos de twitter/X, para Hey
+```{r}
+# Preprocesar el texto
+transcription <- gsub("\n", " ", transcription)
+transcription <- tolower(transcription)
+transcription <- removePunctuation(transcription)
+transcription <- removeWords(transcription, stopwords("spanish"))
+
+#Palabras que se eliman del analisis
+eliminar <- c("gracias", "ufd", "hola", "muchas","listo" ,"día", "días", "ustedes", "heybanco", "hey"
+, "buen", "buena", "bien", "pae","", "saludos", "jajaja", "así","hacer","hace","tdc","uso","meses", "verdad", "tan", "solo", "ahí", "despues", "ahora","hoy","puedes", "...", "uff","pude", "puedo", "además", "correo", "bueno","u0001F600-","u0001F64F","u0001F300","u0001F5FF","u0001F680","u0001F6FF","u0001F700","u0001F77F","u0001F780","u0001F7FF","u0001F800","u0001F8FF","u0001F900","u0001F9FF","u0001FA00","u0001FA6F","u0001FA70","u0001FAFF","u00002600","u000026FF","u00002700","u000027BF","ufd","boleto")
+transcription <- removeWords(transcription, eliminar)
+transcription <- paste(transcription, collapse = " ")
+
+#Creacion de pares de palabras similares
+replacement_pairs <- list(
+  c("hey", "heybanco")
+  
+)
+
+#Cambiar los pares
+for (pair in replacement_pairs) {
+  transcription <- stringi::stri_replace_all_fixed(transcription,pair[1],pair[2])
+}
+
+
+```
+
+
+```{r}
+#Leer base de twitter
+HeyBanco2 <- read_csv("Datathon 2024 datasetHey.csv")
+
+#Hacer un dataframe de los textos 
+transcription <- HeyBanco2
+transcription <- transcription %>% select(-date, -time)
+
+# Preprocesar el texto
+transcription <- gsub("\n", " ", transcription)
+transcription <- tolower(transcription)
+transcription <- removePunctuation(transcription)
+transcription <- removeWords(transcription, stopwords("spanish"))
+
+#Palabras que se eliman del analisis
+eliminar <- c("gracias", "ufd", "hola", "muchas","listo" ,"día", "días", "ustedes", "heybanco", "hey"
+, "buen", "buena", "bien", "pae","", "saludos", "jajaja", "así","hacer","hace","tdc","uso","meses", "verdad", "tan", "solo", "ahí", "despues", "ahora","hoy","puedes", "...", "uff","pude", "puedo", "además", "correo", "bueno","u0001F600-","u0001F64F","u0001F300","u0001F5FF","u0001F680","u0001F6FF","u0001F700","u0001F77F","u0001F780","u0001F7FF","u0001F800","u0001F8FF","u0001F900","u0001F9FF","u0001FA00","u0001FA6F","u0001FA70","u0001FAFF","u00002600","u000026FF","u00002700","u000027BF","ufd","boleto")
+transcription <- removeWords(transcription, eliminar)
+transcription <- paste(transcription, collapse = " ")
+
+#Creacion de pares de palabras similares
+replacement_pairs <- list(
+  c("hey", "heybanco")
+  
+)
+
+#Cambiar los pares
+for (pair in replacement_pairs) {
+  transcription <- stringi::stri_replace_all_fixed(transcription,pair[1],pair[2])
+}
+
+
+# Analizar el sentimiento
+sentiment <- sentiment_by(transcription)
+# Convertir el texto en un Corpus
+corpus <- Corpus(VectorSource(transcription))
+# Convertir el texto en un DocumentTermMatrix
+dtm <- DocumentTermMatrix(corpus)
+# Generar un modelo de topic models
+lda <- LDA(dtm, k = 5)
+# Obtener los términos más importantes de cada tópico
+terms <- tidy(lda, matrix = "beta") %>%
+  group_by(topic) %>%
+  top_n(10, wt = beta)
+
+# Analizar el sentimiento
+sentiment <- sentiment_by(transcription)
+# Convertir el texto en un Corpus
+corpus <- Corpus(VectorSource(transcription))
+# Convertir el texto en un DocumentTermMatrix
+dtm <- DocumentTermMatrix(corpus)
+# Generar un modelo de topic models
+lda <- LDA(dtm, k = 5)
+# Obtener los términos más importantes de cada tópico
+terms <- tidy(lda, matrix = "beta") %>%
+  group_by(topic) %>%
+  top_n(10, wt = beta)
+# Generar el gráfico, que nos muestra las categorias generadas con LDA
+ggplot(terms, aes(x = term, y = beta, fill = topic)) +
+  geom_col(show.legend = FALSE) +
+  theme(axis.title = element_text(size = 9),
+        axis.text.x = element_text(size = 9)) +  
+  coord_flip() +
+  facet_wrap(~topic, ncol = 5)
+
+terms <- tidy(lda, matrix = "beta")
+terms <- terms %>%
+  select(term, beta)
+
+```
+
+
+
+```{python}
+import pandas as pd
+import matplotlib.pyplot as plt
+#Carga de ENIF
+data = pd.read_csv('TMODULO.csv')
+#Defiicion de estilo de las graficas
+plt.style.use('Solarize_Light2')
+#colores de marca
+heymorado = '#4a5d90'
+heygris = '#666666'
+
+
+#Graficas de barra y pastel, para exploracion de datos
+#usamos las graficas para explorar las tendencias y patrones en la encuesta, y crear un idea de como construir las graficas en la presentacion
+
+#analisis de grupos demograficos de interes y sus respuestas
+data[['P6_2_1', 'P6_2_3', 'P6_2_4', 'P6_2_5', 'P6_2_6', 'P6_2_7', 'P6_2_9']] = data[['P6_2_1', 'P6_2_3', 'P6_2_4', 'P6_2_5', 'P6_2_6', 'P6_2_7', 'P6_2_9']].fillna(0).astype(int)
+data['internet_departamental'] = ((data['P6_2_1'] == 1) & (data['P5_4_8'] == 1)).astype(int)
+data['personal, trabaja por cuenta propia'] = ((data['P6_2_4'] == 1) & (data['P3_7'] == 4)).astype(int)
+data['grupal, trabaja por cuenta propia'] = ((data['P6_2_7'] == 1) & (data['P3_7'] == 4)).astype(int)
+data['cuenta de banca en internet, trabaja por cuenta propia'] = ((data['P5_4_8'] == 1) & (data['P3_7'] == 4)).astype(int)
+#definicion de rangos de edades
+bins = [18, 24, 34, 44, 54, 64, 84, 100]
+labels = ['18-24', '25-34', '35-44', '45-54', '55-64', '65-84', '85+']
+
+#tipos de credito en la encuesta
+categories = {
+    'departamental': data['P6_2_1'] == 1,
+    'nominal': data['P6_2_3'] == 1,
+    'personal': data['P6_2_4'] == 1,
+    'automotriz': data['P6_2_5'] == 1,
+    'vivienda': data['P6_2_6'] == 1,
+    'grupal': data['P6_2_7'] == 1,
+    'cuenta de banca en internet': data['P5_4_8'] == 1,
+    'cuenta de banca en internet y departamental': data['internet_departamental'] == 1,
+    'grupal, trabaja por cuenta propia': data['grupal, trabaja por cuenta propia'] == 1,
+    'cuenta de banca en internet, trabaja por cuenta propia': data['cuenta de banca en internet, trabaja por cuenta propia'] == 1,
+    'otro': data['P6_2_9'] == 1
+}
+#bucle para generar graficas de barra con todas las categorias que se definan
+for key, condition in categories.items():
+    subset = data[condition]
+    subset['grupo_edad'] = pd.cut(subset['EDAD'], bins=bins, labels=labels, right=True)
+    subset = subset.sort_values(by='grupo_edad')
+
+    plt.figure(figsize=(10, 6))
+    #estimar porcentajes del total
+    grupo_edad_counts = subset['grupo_edad'].value_counts().sort_index()
+    grupo_edad_percentages = 100 * grupo_edad_counts / grupo_edad_counts.sum()
+    
+    plt.bar(grupo_edad_percentages.index.astype(str), grupo_edad_percentages, color=heymorado, edgecolor=heygris)
+    plt.title(f'Credito de {key}')
+    plt.xlabel('Grupo de Edad')
+    plt.ylabel('Porcentaje del Total')
+    plt.xticks(rotation=45)
+    plt.grid(True)
+    plt.savefig(f'{key}.png')
+    plt.show()
+
+
+#graficas pastel para agrupar indicadores por region
+
+for key, mask in categories.items():
+    categorias_data = data[mask]
+    regiones = categorias_data.groupby('REGION').size()
+    plt.figure(figsize=(8, 6))
+    plt.pie(regiones, labels=regiones.index, autopct='%1.1f%%', startangle=90)
+    plt.title(f'Distribucion de credito {key}  por region')
+    plt.axis('equal')
+    plt.savefig(f'regional{key}.png')
+    plt.show()
+
+#graficas pastel para agrupar indicadores por genero
+
+for key, mask in categories.items():
+    category_data = data[mask]
+    region_counts = category_data.groupby('SEXO').size()
+    plt.figure(figsize=(8, 6))
+    plt.pie(region_counts, labels=region_counts.index, autopct='%1.1f%%', startangle=90)
+    plt.title(f'Distribucion de credito {key}  por genero')
+    plt.axis('equal')
+    plt.savefig(f'regional{key}.png')
+    plt.show()
+
+
+#exportacion de datos en % en formato csv para facilmente recrear las graficas en Canva
+porcentajes_gruposetarios_df = pd.DataFrame()
+for key, condition in categories.items():
+    subset = data[condition]
+    subset['Age_Group'] = pd.cut(subset['EDAD'], bins=bins, labels=labels, right=True)
+    subset = subset.sort_values(by='Age_Group')
+    sumas_gruposetarios = subset['Age_Group'].value_counts().sort_index()
+    porcentajes_gruposetarios = 100 * sumas_gruposetarios / sumas_gruposetarios.sum()
+    porcentajes_gruposetarios_df[key] = porcentajes_gruposetarios
+porcentajes_gruposetarios_df = porcentajes_gruposetarios_df.fillna(0)
+porcentajes_gruposetarios_df.to_csv('porcentajes_gruposetarios.csv', index=True)
+
+print(porcentajes_gruposetarios_df)
+
+age_group_population_df = pd.DataFrame()
+
+for key, condition in categories.items():
+    subset = data[condition]
+    subset['grupo_etario'] = pd.cut(subset['EDAD'], bins=bins, labels=labels, right=True)
+    subset = subset.sort_values(by='Age_Group')
+
+    # estimacion de sumas poblacionales con factor de expansion, calculado por INEGI
+    subset['poblacion estimada'] = subset['FAC_ELE']  # aplicar factor de expansion
+    gruposetariospoblacion = subset.groupby('grupo_etario')['poblacion estimada'].sum()
+
+#procesar grupos etarios y agregar al df
+    uposetariospoblacion_df[key] = uposetariospoblacion.astype(int)
+uposetariospoblacionn_df = uposetariospoblacion_df.transpose()
+
+# reemplazar nan con 0
+uposetariospoblacion_df = uposetariospoblacion_df.fillna(0)
+
+print(gruposetariospoblacion_df)
+uposetariospoblacion_df.to_csv('poblaciones_estimadas.csv', index=True)  
+
+
+```
+
+
+
